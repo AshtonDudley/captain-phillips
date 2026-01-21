@@ -96,7 +96,7 @@ class SquareRoutine : public rclcpp::Node
 			publisher_->publish(msg);		
 		}
 		// Keep turning if not reached last angular target		
-		else if ( abs(wrap_angle(th_now - th_init)) < th_aim)
+		else if ( abs(th_now - th_init) < th_aim)
 		{
 			msg.linear.x = 0; 
 			msg.angular.z = th_vel;
