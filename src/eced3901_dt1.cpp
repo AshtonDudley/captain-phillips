@@ -76,7 +76,15 @@ class SquareRoutine : public rclcpp::Node
 		d_now =	pow( pow(x_now - x_init, 2) + pow(y_now - y_init, 2), 0.5 );
 		
 		// Calculate angle travelled from initial
-		th_now = yaw;
+        yaw_prev = yaw;
+        yaw_unwrapped = yaw;
+        yaw_init = true;
+        } else {
+            double dy = wrap_angle(yaw - yaw_prev);   // small step in [-pi, pi]
+            yaw_unwrapped += dy;                      // accumulate continuously
+            yaw_prev = yaw;
+        }
+        th_now = yaw_unwrapped;
 		
 		
 		// Keep moving if not reached last distance target
@@ -91,8 +99,8 @@ class SquareRoutine : public rclcpp::Node
 		{
 			msg.linear.x = 0; 
 			msg.angular.z = th_vel;
-			publisher_->publish(msg);		
-		}		
+			publisher_->publish(msg);
+		}
 		// If done step, stop
 		else
 		{
@@ -192,6 +200,10 @@ class SquareRoutine : public rclcpp::Node
 	double q_x = 0, q_y = 0, q_z = 0, q_w = 0; 
 	size_t count_ = 0;
 	int last_state_complete = 1;
+
+    double yaw_prev = 0.0;
+    double yaw_unwrapped = 0.0;
+    bool yaw_init = false;
 };
     	
 
