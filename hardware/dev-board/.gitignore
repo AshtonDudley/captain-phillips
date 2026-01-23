@@ -22,8 +22,8 @@ obj/
 *.log
 .DS_Store
 Thumbs.db
-!.vscode\launch.json
-!.vscode\tasks.json
+!.vscode/launch.json
+!.vscode/tasks.json
 
 # =========================
 # CubeMX generated temp
