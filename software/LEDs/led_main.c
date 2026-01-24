@@ -1,5 +1,5 @@
 #include "main.h"
-#include "app_main.h"
+#include "led_main.h"
 #include "math.h"
 #include "ARGB.h"
 
@@ -7,7 +7,12 @@ extern TIM_HandleTypeDef htim1;
 extern TIM_HandleTypeDef htim2;
 extern DMA_HandleTypeDef hdma_tim1_ch1;
 
+//Global Defines
 #define FRAME_DELAY_MS 50 
+
+//Global Variables
+volatile uint16_t distance = 0;
+volatile uint16_t collected = 0;
 
 /* Easy definition of LEDs
 #define PORT 0
@@ -24,16 +29,13 @@ typedef enum {
     SHOW_DANGERMED      =   2,
     SHOW_DANGERHIG      =   3,
     SHOW_COLLECTED      =   4,
-    SHOW_FSK      =   5,
     NUM_OF_SHOWS    
 } t_ShowType;
 
 t_ShowType currentShow = 0;
 
-bool buttonPressed = 0;
 
-
-void app_init(){
+void led_init(){
     return;
 }
 
@@ -57,7 +59,7 @@ void show_off (uint32_t frame){
 }
 
 void show_on(uint32_t frame){
-    float t = (float)frame;
+    (void)frame;
 
     // PORT
 
@@ -94,17 +96,11 @@ void show_on(uint32_t frame){
         uint8_t val = 128;
         ARGB_SetHSV(4, hue, sat, val);
 
-    // FSK
-
-    uint8_t hue = 0; // OFF
-        uint8_t sat = 0;
-        uint8_t val = 0;
-        ARGB_SetHSV(5, hue, sat, val);
 }
 
 
 void show_dangermed(uint32_t frame){
-    float t = (float)frame;
+    (void)frame;
 
     // PORT
 
@@ -141,16 +137,10 @@ void show_dangermed(uint32_t frame){
         uint8_t val = 128;
         ARGB_SetHSV(4, hue, sat, val);
 
-    // FSK
-
-    uint8_t hue = 0; // OFF
-        uint8_t sat = 0;
-        uint8_t val = 0;
-        ARGB_SetHSV(5, hue, sat, val);
 }
 
-void show_dangerhigh(uint32_t frame) {
-    float t = (float)frame;
+void show_dangerhig(uint32_t frame) {
+    (void)frame;
 
     // PORT
 
@@ -186,17 +176,10 @@ void show_dangerhigh(uint32_t frame) {
         uint8_t sat = 255;
         uint8_t val = 128;
         ARGB_SetHSV(4, hue, sat, val);
-
-    // FSK
-
-    uint8_t hue = 0; // OFF
-        uint8_t sat = 0;
-        uint8_t val = 0;
-        ARGB_SetHSV(5, hue, sat, val);
 }
 
 void show_collected(uint32_t frame) {
-    float t = (float)frame;
+    uint16_t t = (float)frame;
 
     // PORT
 
@@ -230,66 +213,11 @@ void show_collected(uint32_t frame) {
 
     uint8_t hue = 35; // Gold
         uint8_t sat = 255;
-        uint8_t val = 128;
+        uint8_t val = oscillateBrightness(t, 60.00f, 0, 255);
         ARGB_SetHSV(4, hue, sat, val);
-
-    // FSK
-
-    uint8_t hue = 0; // OFF
-        uint8_t sat = 0;
-        uint8_t val = 0;
-        ARGB_SetHSV(5, hue, sat, val);
 }
 
-void show_fsk(uint32_t frame) {
-    float t = (float)frame;
-
-    // PORT
-
-    uint8_t hue = 0; // Red
-        uint8_t sat = 255;
-        uint8_t val = 128;
-        ARGB_SetHSV(0, hue, sat, val);
-
-    // BOW
-
-    uint8_t hue = 0; // White
-        uint8_t sat = 0;
-        uint8_t val = 128;
-        ARGB_SetHSV(1, hue, sat, val);
-
-    // STARBOARD
-
-    uint8_t hue =  85; // Green
-        uint8_t sat = 255;
-        uint8_t val = 128;
-        ARGB_SetHSV(2, hue, sat, val);
-
-    // STERN
-
-    uint8_t hue = 0; // White
-        uint8_t sat = 0;
-        uint8_t val = 128;
-        ARGB_SetHSV(3, hue, sat, val);
-
-    // DISTANCE
-
-    uint8_t hue = 43; // Yellow
-        uint8_t sat = 255;
-        uint8_t val = 128;
-        ARGB_SetHSV(4, hue, sat, val);
-
-    // FSK
-
-    uint8_t hue = 43; // 170
-        uint8_t sat = 255;
-        uint8_t val = 128;
-        ARGB_SetHSV(5, hue, sat, val);
-}
-
-void app_main(){
-    
-    HAL_NVIC_EnableIRQ(EXTI0_1_IRQn);
+void led_main(){
 
     ARGB_Init();  // Initialization
     ARGB_SetBrightness(128); // Set a moderate global brightness (0-255)
@@ -316,27 +244,28 @@ void app_main(){
             case SHOW_COLLECTED:
                 show_collected(frame);
                 break;
-            case SHOW_FSK:
-                show_fsk(frame);
-                break;
             default:
                 break;
         }
 
-        if (buttonPressed) {
-            buttonPressed = false;
-            currentShow = (currentShow + 1) % NUM_OF_SHOWS;
+        //Collected Lights
+        if (collected){
+            currentShow = 4;
+        }
+        //Danger Light Switching
+        else if (distance > 0 && distance <= 5) {
+            currentShow = 3;
+        }
+        else if(distance > 5 && distance <= 10) {
+            currentShow = 2;
+        }
+        else {
+            currentShow = 1;
         }
 
         ARGB_Show();
         HAL_Delay(FRAME_DELAY_MS);
         frame++;
         
-    }
-}
-
-void HAL_GPIO_EXTI_Rising_Callback(uint16_t GPIO_Pin) {
-    if (GPIO_Pin == USER_BUTTON_Pin){
-        buttonPressed = true;
     }
 }
