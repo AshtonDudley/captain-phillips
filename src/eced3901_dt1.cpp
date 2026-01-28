@@ -89,11 +89,9 @@ class SquareRoutine : public rclcpp::Node
 			publisher_->publish(msg);		
 		}
 		// Keep turning if not reached last angular target		
-
-		double angle_diff = wrap_angle(th_aim - th_now);
-		else if (abs(angle_diff) > th_tolerance)
+		else if (abs(th_aim - th_now) > th_tolerance)
 		{
-			remaining = abs(angle_diff);
+			remaining = abs(th_aim - th_now);
 			ramp = std::min(1.0, remaining/(M_PI/8)); //ramp down
 			adjusted_th_vel = th_vel * ramp;
 			msg.linear.x = 0; 
