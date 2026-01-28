@@ -165,9 +165,8 @@ class SquareRoutine : public rclcpp::Node
 	// Set the initial angle as where robot is heading and put new th_aim in place			
 	void turn_angle(double angle)
 	{
-		th_aim = angle;
 		th_init = th_now;
-		th_target = wrap_angle(th_init + angle);
+		th_aim = wrap_angle(th_init + angle);
 		count_++;		// advance state counter
 		last_state_complete = 0;	
 	}
@@ -196,7 +195,7 @@ class SquareRoutine : public rclcpp::Node
 	// Declaration of Class Variables
 	double x_vel = 0.1, th_vel = 0.2;
 	double adjusted_x_vel = 0, adjusted_th_vel = 0;
-	double th_tolerance = 0.05, th_target = 0;
+	double th_tolerance = 0.05;
 	double x_now = 0, x_init = 0, y_now = 0, y_init = 0, th_now = 0, th_init = 0;
 	double d_now = 0, d_aim = 0, th_aim = 0;
 	double q_x = 0, q_y = 0, q_z = 0, q_w = 0;
