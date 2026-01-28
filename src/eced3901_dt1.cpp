@@ -119,57 +119,57 @@ class SquareRoutine : public rclcpp::Node
 			    move_distance(1.2); //move the robot forwards
 			    break;
 			  case 1:
-			    nav_left(M_PI/2.05);  //turn to avoid wall
+			    turn_left(M_PI/2.05);  //turn to avoid wall
 			    break;
 			  case 2:
 			    move_distance(0.40);  //second movement for the robot
 			    break;
 			  case 3:
-			    nav_right(M_PI/2.05); //turn the robot again
+			    turn_right(M_PI/2.05); //turn the robot again
 			    break;
 			  case 4:
 			    move_distance(1.0);  //drive toward obstacle
 			    break;			    
 			  case 5:
-			    nav_right(M_PI/2.05); //turn the robot again
+			    turn_right(M_PI/2.05); //turn the robot again
 			    break;
 			  case 6:
 			    move_distance(0.40); //drive past wall
 			    break;			    
 			  case 7:
-			    nav_left(M_PI/2.05);  //turn towards cargo
+			    turn_left(M_PI/2.05);  //turn towards cargo
 			    break;  
               case 8:
                 move_distance(1.2); //at cargo?
 			  case 13: //start truning around
-			    nav_left(M_PI/2.05); //turn the robot again
+			    turn_left(M_PI/2.05); //turn the robot again
 				break;			  
 			  case 9:
-			    nav_left(M_PI/2.05); //robot did 180
+			    turn_left(M_PI/2.05); //robot did 180
 				break;
 			  case 10:
 			    move_distance(1.2);
 				break;
 			  case 11:
-				nav_right(M_PI/2.05); //should be facing correct direction
+				turn_right(M_PI/2.05); //should be facing correct direction
 				break;
 			  case 12:
 			    move_distance(0.4);
 				break;
 			  case 13:
-			    nav_left(M_PI/2.05);
+			    turn_left(M_PI/2.05);
 				break;
 			  case 14:
 			    move_distance(1.0);
 				break;
 			  case 15:
-			    nav_left(M_PI/2.05);
+			    turn_left(M_PI/2.05);
 				break;
 			  case 16:
 			    move_distance(0.4);
 			    break;
 			  case 17:
-			    nav_right(M_PI/2.05);
+			    turn_right(M_PI/2.05);
 			    break;
 			  case 18:
 			    move_distance(1.1); //should be back at start?
