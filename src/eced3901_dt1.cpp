@@ -80,8 +80,7 @@ class SquareRoutine : public rclcpp::Node
 		
 		// Calculate angle travelled from initial
 		th_now = yaw;
-		
-	    double error = wrap_angle(th_target - th_now);
+	    double yaw_err = wrap_angle(th_target - th_now);
         
         // distance remaining
         double d_err = d_aim - d_now;
@@ -93,21 +92,25 @@ class SquareRoutine : public rclcpp::Node
             // Use PID to drive distance error to 0
             // setpoint = 0, measurement = -d_err -> error = d_err
             float v_cmd = pid_step_ms(&pid_lin, 0.0f, (float)(-d_err), t);
+            
+            // yaw-hold PID
+            float w_cmd = pid_step_ms(&pid_yaw, 0.0f, (float)yaw_err, t);
 
             msg.linear.x = (double)v_cmd;
-            msg.angular.z = 0.0;
+            msg.angular.z = -(double)w_cmd;
+
             publisher_->publish(msg);
         }	
         
         // Keep turning if not reached last angular target		
 		// If done step, stop
-        else if (std::abs(error) > th_tol)
+        else if (std::abs(yaw_err) > th_tol)
         {
             uint32_t t = now_ms();
 
             // error = wrap_angle(th_target - th_now)
             // Drive error -> 0 with PID by using setpoint=0, measurement=error
-            float w_cmd = pid_step_ms(&pid_yaw, 0.0f, (float)error, t);
+            float w_cmd = pid_step_ms(&pid_yaw, 0.0f, (float)yaw_err, t);
 
             msg.linear.x = 0.0;
             msg.angular.z = -(double)w_cmd;
@@ -171,7 +174,10 @@ class SquareRoutine : public rclcpp::Node
 		x_init = x_now;
 		y_init = y_now;		
 
+        th_target = th_now;
+
         uint32_t t = now_ms();
+
         pid_init(&pid_lin, 
                 1.0,           // kp 
                 1.0f,           // ki
@@ -180,6 +186,17 @@ class SquareRoutine : public rclcpp::Node
                 (float)v_max, 
                 -0.5f, 
                 0.5f, 
+                t);
+
+        // reset yaw PID for heading hold
+        pid_init(&pid_yaw, 
+                0.8f, 
+                0.0f, 
+                0.0f,          
+                -(float)w_max, 
+                (float)w_max,
+                -0.2f,
+                0.2f, 
                 t);
 
 		count_++;		// advance state counter
@@ -194,8 +211,8 @@ class SquareRoutine : public rclcpp::Node
 
         uint32_t t = now_ms();
         pid_init(&pid_yaw,
-                0.1f,           // kp
-                0.05f,           // ki
+                0.5f,           // kp
+                0.00f,           // ki
                 0.00f,          // kd
                 -(float)w_max,
                 (float)w_max,
@@ -208,16 +225,16 @@ class SquareRoutine : public rclcpp::Node
 	}
 	
 	// Handle angle wrapping
-    	double wrap_angle(double angle)
-    	{
-            angle = fmod(angle + M_PI,2*M_PI);
-        	if (angle <= 0.0)
-        	{
-           		angle += 2*M_PI;
-           	}           
-        	return angle - M_PI;
-    	}
-    
+    double wrap_angle(double angle)
+    {
+        angle = fmod(angle + M_PI,2*M_PI);
+        if (angle <= 0.0)
+        {
+            angle += 2*M_PI;
+        }           
+        return angle - M_PI;
+    }
+
 	
 	// Declaration of subscription_ attribute
 	rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr subscription_;
