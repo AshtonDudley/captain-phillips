@@ -27,41 +27,11 @@ License: GNU GPLv3
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/LinearMath/Matrix3x3.h>
 
+// PID logic
+#include "integrator.h"
+
 using namespace std::chrono_literals;
 using std::placeholders::_1;
-
-
-// Returns a commanded speed based on remaining error.
-// error: signed (target - current). Sign determines direction.
-// v_max: max magnitude of speed (m/s or rad/s)
-// v_min: minimum magnitude once you’re moving (helps overcome stiction). Set 0 if unwanted.
-// slow_zone: error magnitude where ramping starts (units match error)
-// tol: within this tolerance, return 0 (done)
-static double ramp_speed_from_error(double error,
-                                   double v_max,
-                                   double v_min,
-                                   double slow_zone,
-                                   double tol)
-{
-    const double e = std::abs(error);
-
-    if (e <= tol) return 0.0;
-
-    // Ramp factor: 1 outside slow zone, linearly down to 0 at tol
-    double ramp = 1.0;
-    if (e < slow_zone) {
-        // Map e in [tol, slow_zone] -> ramp in [0, 1]
-        ramp = (e - tol) / (slow_zone - tol);
-        ramp = std::clamp(ramp, 0.0, 1.0);
-    }
-
-    // Speed magnitude with clamp to [v_min, v_max]
-    double mag = v_max * ramp;
-    mag = std::clamp(mag, v_min, v_max);
-
-    // Restore direction
-    return (error >= 0.0) ? mag : -mag;
-}
 
 // Create the node class named SquareRoutine
 // It inherits rclcpp::Node class attributes and functions
@@ -80,7 +50,7 @@ class SquareRoutine : public rclcpp::Node
 		publisher_ = this->create_publisher<geometry_msgs::msg::Twist>("cmd_vel",10);
       
 	  	// Create the timer
-	  	timer_ = this->create_wall_timer(20ms, std::bind(&SquareRoutine::timer_callback, this)); 	  
+	  	timer_ = this->create_wall_timer(100ms, std::bind(&SquareRoutine::timer_callback, this)); 	  
 	}
 
   private:
@@ -110,40 +80,73 @@ class SquareRoutine : public rclcpp::Node
 		
 		// Calculate angle travelled from initial
 		th_now = yaw;
-		
-	    double error = wrap_angle(th_target - th_now);
-        
-		// Keep moving if not reached last distance target
-		if (d_now < d_aim)
-		{
-			msg.linear.x = x_vel; 
-			msg.angular.z = 0;
-			publisher_->publish(msg);		
-		}
-		// Keep turning if not reached last angular target		
-        else if (std::abs(error) > th_tol)
-        {
-            msg.linear.x = 0.0;
+	    double yaw_err = wrap_angle(th_target - th_now);
 
-            msg.angular.z = ramp_speed_from_error(
-                error,
-                /*v_max=*/th_vel,
-                /*v_min=*/th_min_vel,
-                /*slow_zone=*/th_slow_zone,
-                /*tol=*/th_tol
+        // distance remaining
+        double d_err = d_aim - d_now;
+        
+        if (debug_ticks_ < 10) {
+            RCLCPP_INFO(
+                this->get_logger(),
+                "DEBUG [%d] th_now=%.4f th_target=%.4f yaw_err=%.4f w_cmd=%.4f",
+                debug_ticks_, th_now, th_target, yaw_err, msg.angular.z
             );
+            debug_ticks_++;
+        }
+
+
+        if (d_err > d_tol)
+        {
+            uint32_t t = now_ms();
+            
+            // Use PID to drive distance error to 0
+            // setpoint = 0, measurement = -d_err -> error = d_err
+            float v_cmd = pid_step_ms(&pid_lin, 0.0f, (float)(-d_err), t);
+            
+            // yaw-hold PID
+            float w_cmd = pid_step_ms(&pid_yaw, 0.0f, -(float)yaw_err, t);
+
+            if (debug_ticks_ < 10) {
+                RCLCPP_INFO(
+                    this->get_logger(),
+                    "DEBUG move start [%d] th_now=%.4f th_target=%.4f yaw_err=%.4f w_cmd=%.4f",
+                    debug_ticks_,
+                    th_now,
+                    th_target,
+                    yaw_err,
+                    msg.angular.z
+                );
+                debug_ticks_++;
+            }
+
+            msg.linear.x = (double)v_cmd;
+            msg.angular.z = (double)w_cmd;
 
             publisher_->publish(msg);
-        }
+        }	
+        
+        // Keep turning if not reached last angular target		
 		// If done step, stop
-		else
+        else if (std::abs(yaw_err) > th_tol)
+        {
+            uint32_t t = now_ms();
+
+            // error = wrap_angle(th_target - th_now)
+            // Drive error -> 0 with PID by using setpoint=0, measurement=error
+            float w_cmd = pid_step_ms(&pid_yaw, 0.0f, -(float)yaw_err, t);
+
+            msg.linear.x = 0.0;
+            msg.angular.z = (double)w_cmd;
+            publisher_->publish(msg);
+        } 
+
+        else
 		{
 			msg.linear.x = 0; //double(rand())/double(RAND_MAX); //fun
 			msg.angular.z = 0; //2*double(rand())/double(RAND_MAX) - 1; //fun
 			publisher_->publish(msg);
-			last_state_complete = 1;
+			last_state_complete += 1;
 		}
-
 
 		sequence_statemachine();		
 		
@@ -153,7 +156,7 @@ class SquareRoutine : public rclcpp::Node
 	
 	void sequence_statemachine()
 	{
-		if (last_state_complete == 1)
+		if (last_state_complete == 10) // force multiple, (acting as a "stop state")
 		{
 			switch(count_) 
 			{
@@ -190,9 +193,37 @@ class SquareRoutine : public rclcpp::Node
 	// Set the initial position as where robot is now and put new d_aim in place	
 	void move_distance(double distance)
 	{
+        debug_ticks_ = 0;
+
 		d_aim = distance;
 		x_init = x_now;
 		y_init = y_now;		
+
+        th_target = th_now;
+
+        uint32_t t = now_ms();
+
+        pid_init(&pid_lin, 
+                1.0,           // kp 
+                1.0f,           // ki
+                0.00f,          // kd
+                -(float)v_max, 
+                (float)v_max, 
+                -0.5f, 
+                0.5f, 
+                t);
+
+        // reset yaw PID for heading hold
+        pid_init(&pid_yaw, 
+                0.8f, 
+                0.0f, 
+                0.0f,          
+                -(float)w_max, 
+                (float)w_max,
+                -0.2f,
+                0.2f, 
+                t);
+
 		count_++;		// advance state counter
 		last_state_complete = 0;	
 	}
@@ -202,21 +233,30 @@ class SquareRoutine : public rclcpp::Node
 	{
         th_init = th_now;
         th_target = wrap_angle(th_init + angle);
-		count_++;		// advance state counter
-		last_state_complete = 0;	
+
+        uint32_t t = now_ms();
+        pid_init(&pid_yaw,
+                0.5f,           // kp
+                0.00f,           // ki
+                0.00f,          // kd
+                -(float)w_max,
+                (float)w_max,
+                -0.5f,
+                0.5f,
+                t);
+
+        count_++;
+        last_state_complete = 0;
 	}
 	
 	// Handle angle wrapping
-    	double wrap_angle(double angle)
-    	{
-    	        angle = fmod(angle + M_PI,2*M_PI);
-        	if (angle <= 0.0)
-        	{
-           		angle += 2*M_PI;
-           	}           
-        	return angle - M_PI;
-    	}
-    
+    double wrap_angle(double angle)
+    {
+        angle = std::remainder(angle, 2.0 * M_PI);
+        return angle;
+    }
+
+    int debug_ticks_ = 0;
 	
 	// Declaration of subscription_ attribute
 	rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr subscription_;
@@ -233,12 +273,29 @@ class SquareRoutine : public rclcpp::Node
 	double d_now = 0, d_aim = 0, th_aim = 0;
 	double q_x = 0, q_y = 0, q_z = 0, q_w = 0; 
     double th_target = 0.0;
-    double th_tol = 0.03; // how close before the code delcares turning is "done"
 	size_t count_ = 0;
-    double th_slow_zone = 0.35;
-    double th_min_vel   = 0.02;
 	int last_state_complete = 1;
+
+    // Custom PID controller
+    PID pid_lin{};
+    PID pid_yaw{};
+
+    // Tuning + tolerances
+    double d_tol = 0.01;     // meters
+    double th_tol = 0.01;    // radians 
+
+    // Output limits
+    double v_max = 0.30;     // m/s
+    double w_max = 0.20;     // rad/s 
+
+    // Helper to get ms time for PID
+    uint32_t now_ms()
+    {
+        return (uint32_t)(this->get_clock()->now().nanoseconds() / 1000000ULL);
+    }
 };
+
+
     	
 
 
