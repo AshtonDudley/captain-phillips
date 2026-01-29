@@ -13,6 +13,7 @@ License: GNU GPLv3
 #include <memory>		// Dynamic memory management
 #include <string>		// String functions
 #include <cmath>
+#include <algorithm> 
 
 // ROS Client Library for C++
 #include "rclcpp/rclcpp.hpp"
@@ -29,6 +30,38 @@ License: GNU GPLv3
 using namespace std::chrono_literals;
 using std::placeholders::_1;
 
+
+// Returns a commanded speed based on remaining error.
+// error: signed (target - current). Sign determines direction.
+// v_max: max magnitude of speed (m/s or rad/s)
+// v_min: minimum magnitude once you’re moving (helps overcome stiction). Set 0 if unwanted.
+// slow_zone: error magnitude where ramping starts (units match error)
+// tol: within this tolerance, return 0 (done)
+static double ramp_speed_from_error(double error,
+                                   double v_max,
+                                   double v_min,
+                                   double slow_zone,
+                                   double tol)
+{
+    const double e = std::abs(error);
+
+    if (e <= tol) return 0.0;
+
+    // Ramp factor: 1 outside slow zone, linearly down to 0 at tol
+    double ramp = 1.0;
+    if (e < slow_zone) {
+        // Map e in [tol, slow_zone] -> ramp in [0, 1]
+        ramp = (e - tol) / (slow_zone - tol);
+        ramp = std::clamp(ramp, 0.0, 1.0);
+    }
+
+    // Speed magnitude with clamp to [v_min, v_max]
+    double mag = v_max * ramp;
+    mag = std::clamp(mag, v_min, v_max);
+
+    // Restore direction
+    return (error >= 0.0) ? mag : -mag;
+}
 
 // Create the node class named SquareRoutine
 // It inherits rclcpp::Node class attributes and functions
@@ -88,12 +121,20 @@ class SquareRoutine : public rclcpp::Node
 			publisher_->publish(msg);		
 		}
 		// Keep turning if not reached last angular target		
-		else if (abs(error) > th_tol)
-		{
-			msg.linear.x = 0; 
-			msg.angular.z = (error > 0) ? th_vel :  -th_vel;
-			publisher_->publish(msg);		
-		}		
+        else if (std::abs(error) > th_tol)
+        {
+            msg.linear.x = 0.0;
+
+            msg.angular.z = ramp_speed_from_error(
+                error,
+                /*v_max=*/th_vel,
+                /*v_min=*/th_min_vel,
+                /*slow_zone=*/th_slow_zone,
+                /*tol=*/th_tol
+            );
+
+            publisher_->publish(msg);
+        }
 		// If done step, stop
 		else
 		{
@@ -192,8 +233,10 @@ class SquareRoutine : public rclcpp::Node
 	double d_now = 0, d_aim = 0, th_aim = 0;
 	double q_x = 0, q_y = 0, q_z = 0, q_w = 0; 
     double th_target = 0.0;
-    double th_tol = 0.02;
+    double th_tol = 0.03; // how close before the code delcares turning is "done"
 	size_t count_ = 0;
+    double th_slow_zone = 0.35;
+    double th_min_vel   = 0.02;
 	int last_state_complete = 1;
 };
     	
