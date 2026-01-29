@@ -84,15 +84,31 @@ float pid_step_ms(PID *p, float setpoint, float measurement, uint32_t now_ms)
     // proportional term
     float u_p = p->kp * error;
 
-    // integral term: ui(t) = ki * ∫ e(t) dt
-    float error_int = integrator_step_ms(&p->i, error, now_ms);
-    error_int = clampf(error_int, p->i_min, p->i_max);
-    p->i.x = error_int; // store for next pass
-    float u_i = p->ki * error_int;
-
-    // derivative term: ud(t) = kd * d(e)/dt; implemented as -kd * d(meas)/dt
+    // derivative term: implemented as -kd * d(meas)/dt
     float dmeas_dt = differentiator_step_ms(&p->d, measurement, now_ms);
     float u_d = -p->kd * dmeas_dt;
+
+    // anti-windup: predict current output before adding new integral
+    float u_i_current = p->ki * p->i.x;
+    float u_pre = u_p + u_i_current + u_d;
+
+    bool sat_high = (u_pre >= p->out_max);
+    bool sat_low  = (u_pre <= p->out_min);
+
+    // If saturated and error would drive further into saturation, freeze integrator
+    bool freeze_i = (sat_high && (error > 0.0f)) || (sat_low  && (error < 0.0f));
+
+    // integral term: ui(t) = ki * int(e(t)) dt
+    float error_int = p->i.x;
+    if (!freeze_i) {
+        error_int = integrator_step_ms(&p->i, error, now_ms);
+        error_int = clampf(error_int, p->i_min, p->i_max);
+        p->i.x = error_int; // store for next pass
+    } else {
+        p->i.last_ms = now_ms;
+        p->i.initialized = true;
+    }
+    float u_i = p->ki * p->i.x;
 
     // control signal
     float u = u_p + u_i + u_d;

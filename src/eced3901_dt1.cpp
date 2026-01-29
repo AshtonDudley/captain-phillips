@@ -27,6 +27,9 @@ License: GNU GPLv3
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/LinearMath/Matrix3x3.h>
 
+// PID logic
+#include "integrator.h"
+
 using namespace std::chrono_literals;
 using std::placeholders::_1;
 
@@ -113,24 +116,33 @@ class SquareRoutine : public rclcpp::Node
 		
 	    double error = wrap_angle(th_target - th_now);
         
-		// Keep moving if not reached last distance target
-		if (d_now < d_aim)
-		{
-			msg.linear.x = x_vel; 
-			msg.angular.z = 0;
-			publisher_->publish(msg);		
-		}
-		// Keep turning if not reached last angular target		
+        // distance remaining
+        double d_err = d_aim - d_now;
+
+        if (d_err > d_tol)
+        {
+            uint32_t t = now_ms();
+            
+            // Use PID to drive distance error to 0
+            // setpoint = 0, measurement = -d_err -> error = d_err
+            float v_cmd = pid_step_ms(&pid_lin, 0.0f, (float)(-d_err), t);
+
+            msg.linear.x = (double)v_cmd;
+            msg.angular.z = 0.0;
+            publisher_->publish(msg);
+        }	
+        
+        // Keep turning if not reached last angular target		
         else if (std::abs(error) > th_tol)
         {
             msg.linear.x = 0.0;
 
             msg.angular.z = ramp_speed_from_error(
                 error,
-                /*v_max=*/th_vel,
-                /*v_min=*/th_min_vel,
-                /*slow_zone=*/th_slow_zone,
-                /*tol=*/th_tol
+                th_vel,
+                th_min_vel,
+                th_slow_zone,
+                th_tol
             );
 
             publisher_->publish(msg);
@@ -193,6 +205,18 @@ class SquareRoutine : public rclcpp::Node
 		d_aim = distance;
 		x_init = x_now;
 		y_init = y_now;		
+
+        int t = now_ms();
+        pid_init(&pid_lin, 
+                0.8f,  
+                0.0f, 
+                0.05f, 
+                -(float)v_max, 
+                (float)v_max, 
+                -0.5f, 
+                0.5f, 
+                t);
+
 		count_++;		// advance state counter
 		last_state_complete = 0;	
 	}
@@ -233,12 +257,31 @@ class SquareRoutine : public rclcpp::Node
 	double d_now = 0, d_aim = 0, th_aim = 0;
 	double q_x = 0, q_y = 0, q_z = 0, q_w = 0; 
     double th_target = 0.0;
-    double th_tol = 0.03; // how close before the code delcares turning is "done"
 	size_t count_ = 0;
     double th_slow_zone = 0.35;
     double th_min_vel   = 0.02;
 	int last_state_complete = 1;
+
+    // Custom PID controller
+    PID pid_lin{};
+    PID pid_yaw{};
+
+    // Tuning + tolerances
+    double d_tol = 0.01;     // meters
+    double th_tol = 0.03;    // radians 
+
+    // Output limits
+    double v_max = 0.10;     // m/s
+    double w_max = 0.20;     // rad/s 
+
+    // Helper to get ms time for PID
+    uint32_t now_ms()
+    {
+        return (uint32_t)(this->get_clock()->now().nanoseconds() / 1000000ULL);
+    }
 };
+
+
     	
 
 
